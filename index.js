@@ -1,73 +1,88 @@
-var request = require('request');
-var cheerio = require('cheerio');
 var _ = require('lodash');
 var fs=require('fs');
 var http=require('http');
 var async = require('async');
-var playerIndexPage = "http://stats.nba.com/players/?ls=iref:nba:gnav"
-// request(playerIndexPage, function (error, response, body) {
-//   if (!error && response.statusCode == 200) {
-//     console.log(body) // Show the HTML for the Google homepage.
-//
-//     //parse the body and get the players names and links to their profile pages
-//     $ = cheerio.load(body);
-//     var playerLinks = $('.player-list-column a');
-//     playerLinks.each(function(ndx, el){
-//       console.log($(el).text());
-//       console.log($(el).attr('href'));
-//       console.log();
-//     })
-//   }
-// });
+var nbaDataEndpoint = 'http://stats.nba.com/stats/commonallplayers?IsOnlyCurrentSeason=1&LeagueID=00&Season=2015-16';
 
-//http://stats.nba.com/stats/commonallplayers?IsOnlyCurrentSeason=0&LeagueID=00&Season=2015-16
+var rawData;
+var players;
+var teams;
 
-var data = require('./2015-players.json');
-var player = {};
-var fieldnames = data.resultSets[0].headers;
+function getNBAData(callback) {
+  http.get(nbaDataEndpoint, function(res) {
+    if(res.statusCode !== 200) {
+      callback(new Error('Could not retrieve NBA data.'));
+      return;
+    }
 
-var players = [];
-var rowSets = data.resultSets[0].rowSet;
-
-for(var i = 0; i < rowSets.length; i++) {
-  players.push(_.zipObject(fieldnames, rowSets[i]));
+    var body = '';
+    res.on('data', function(d) { body += d; });
+    res.on('end', function() {
+      rawData = JSON.parse(body); //todo: cache in a file
+      callback(null, rawData);
+    });
+  });
 }
 
-var teams = _.uniq(_.pluck(players, 'TEAM_ABBREVIATION'));
-async.map(teams, function(team, callback) {
-  var path = __dirname + '/player_images/' + team;
-  fs.mkdir(path, 0777, function(err) {
-    if(err.code === 'EEXIST') {
-      callback(null);
-    } else {
+function transformRawData(data, callback) {
+  if(!data) {
+    callback(new Error('No data to transform.'));
+    return;
+  }
+
+  var fieldnames = data.resultSets[0].headers;
+
+  players = [];
+  var rowSets = data.resultSets[0].rowSet;
+
+  for(var i = 0; i < rowSets.length; i++) {
+    players.push(_.zipObject(fieldnames, rowSets[i]));
+  }
+
+  callback();
+}
+
+function prepareTeamDirectories(callback) {
+  teams = _.uniq(_.pluck(players, 'TEAM_ABBREVIATION'));
+  async.each(teams, function(team, cb) {
+    var path = __dirname + '/teams/' + team;
+    fs.mkdir(path, 0777, function(err) {
+      if(!err || err.code === 'EEXIST') {
+        cb();
+      } else {
+        cb(err);
+      }
+    });
+  }, function(err) {
+    if(err) {
       callback(err);
+      return;
+    }
+
+    callback();
+  });
+}
+
+function savePlayerImages(callback) {
+  async.each(players, function(player) {
+    var name = player.PLAYERCODE;
+    var saveName = player.TEAM_ABBREVIATION + '/' + name;
+    var imgSource = 'http://i.cdn.turner.com/nba/nba/.element/img/2.0/sect/statscube/players/large/' + name + '.png';
+
+    http.get(imgSource, function(res){
+      res.pipe(fs.createWriteStream('teams/' + saveName + '.png'));
+    });
+  }, function(err) {
+    if(err) {
+      callback(err);
+      return;
     }
   });
-}, function(err, results) {
+}
+async.waterfall([getNBAData, transformRawData, prepareTeamDirectories, savePlayerImages], function(err, result) {
   if(err) {
-    console.log('Error creating teams: ', err);
-  }
-});
-
-/*
-var knicks = _.filter(players, function(p) {
-  return p.TEAM_ABBREVIATION === 'NYK';
-});
-*/
-
-async.map(players, function(player) {
-
-  var name = player.PLAYERCODE;
-  var saveName = player.TEAM_ABBREVIATION + '/' + name;
-  var imgSource = 'http://i.cdn.turner.com/nba/nba/.element/img/2.0/sect/statscube/players/large/' + name + '.png';
-
-  http.get(imgSource, function(res){
-    res.pipe(fs.createWriteStream('player_images/' + saveName + '.png'));
-  });
-}, function(err, results) {
-  if(err) {
-    console.log('error:', err);
+    console.log('Error:', err);
   }
 
-  console.log('Processed: ', results.length);
+  console.log(players.length, ' players processed from ', teams.length, 'teams');
 });
