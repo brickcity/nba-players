@@ -1,0 +1,19 @@
+{
+  "name": "headshot",
+  "private": true,
+  "version": "1.0.0",
+  "description": "grabs the profile photo of nba players from nba.com",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "async": "^1.4.2",
+    "cheerio": "^0.19.0",
+    "lodash": "^3.10.1",
+    "request": "^2.65.0",
+    "zombie": "^4.1.0"
+  }
+}
