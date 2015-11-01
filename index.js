@@ -46,8 +46,15 @@ function prepareTeamDirectories(callback) {
   teams = _.uniq(_.pluck(players, 'TEAM_ABBREVIATION'));
   async.each(teams, function(team, cb) {
     var path = __dirname + '/teams/' + team;
+    var teamPlayers = _.filter(players, function(p) {
+      return p.TEAM_ABBREVIATION === team;
+    });
+
     fs.mkdir(path, 0777, function(err) {
       if(!err || err.code === 'EEXIST') {
+        var teamStream = fs.createWriteStream(path + '/team.json');
+        teamStream.write(JSON.stringify(teamPlayers));
+        teamStream.end();
         cb();
       } else {
         cb(err);
